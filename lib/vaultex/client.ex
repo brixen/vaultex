@@ -8,8 +8,12 @@ defmodule Vaultex.Client do
   alias Vaultex.Read, as: Read
   @version "v1"
 
-  def start_link() do
-    GenServer.start_link(__MODULE__, %{progress: "starting"}, name: :vaultex)
+  def start(options \\ [name: :vaultex]) do
+    GenServer.start(__MODULE__, %{}, options)
+  end
+
+  def start_link(options \\ [name: :vaultex]) do
+    GenServer.start_link(__MODULE__, %{progress: "starting"}, options)
   end
 
   def init(state) do
@@ -21,13 +25,13 @@ defmodule Vaultex.Client do
 
   ## Parameters
 
-    - method: Auth backend to use for authenticating, can be one of `:app_id, :userpass, :github`
-    - credentials: A tuple used for authentication depending on the method, `{app_id, user_id}` for `:app_id`, `{username, password}` for `:userpass`, `{github_token}` for `:github`
+    - method: Auth backend to use for authenticating, can be one of `:app_role, :userpass, :github`
+    - credentials: A tuple used for authentication depending on the method, `{role_id, secret_id}` for `:app_role` (where `secret_id` is optional if `bind_secret_id` is not set on the `role_id`), `{username, password}` for `:userpass`, `{github_token}` for `:github`
 
   ## Examples
 
     ```
-    iex> Vaultex.Client.auth(:app_id, {app_id, user_id})
+    iex> Vaultex.Client.auth(:app_role, {role_id, secret_id})
     {:ok, :authenticated}
 
     iex> Vaultex.Client.auth(:userpass, {username, password})
@@ -37,8 +41,8 @@ defmodule Vaultex.Client do
     {:ok, :authenticated}
     ```
   """
-  def auth(method, credentials) do
-    GenServer.call(:vaultex, {:auth, method, credentials})
+  def auth(method, credentials, client \\ :vaultex) do
+    GenServer.call(client, {:auth, method, credentials})
   end
 
   @doc """
@@ -52,7 +56,7 @@ defmodule Vaultex.Client do
   ## Examples
 
     ```
-    iex> Vaultex.Client.read "secret/foo", :app_id, {app_id, user_id}
+    iex> Vaultex.Client.read "secret/foo", :app_role, {role_id, secret_id}
     {:ok, %{"value" => "bar"}}
 
     iex> Vaultex.Client.read "secret/baz", :userpass, {username, password}
@@ -63,18 +67,18 @@ defmodule Vaultex.Client do
     ```
 
   """
-  def read(key, auth_method, credentials) do
-    response = read(key)
+  def read(key, auth_method, credentials, client \\ :vaultex) do
+    response = read(client, key)
     case response do
       {:ok, _} -> response
       {:error, _} ->
-        with {:ok, _} <- auth(auth_method, credentials),
-          do: read(key)
+        with {:ok, _} <- auth(auth_method, credentials, client),
+          do: read(client, key)
     end
   end
 
-  defp read(key) do
-    GenServer.call(:vaultex, {:read, key})
+  defp read(client, key) do
+    GenServer.call(client, {:read, key})
   end
 
   def handle_call({:read, key}, _from, state) do

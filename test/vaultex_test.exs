@@ -2,72 +2,75 @@ defmodule VaultexTest do
   use ExUnit.Case
   doctest Vaultex
 
-  test "Authentication of app_id and user_id is successful" do
-    assert Vaultex.Client.auth(:app_id, {"good", "whatever"}) == {:ok, :authenticated}
+  setup context do
+    {:ok, client} = Vaultex.Client.start(name: context[:test])
+
+    on_exit fn ->
+      GenServer.stop(client)
+    end
+
+    {:ok, client: client}
   end
 
-  test "Authentication of app_id and user_id is unsuccessful" do
-    assert Vaultex.Client.auth(:app_id, {"bad", "whatever"}) == {:error, ["Not Authenticated"]}
+  test "Authentication of app_role with role_id is successful", %{client: client} do
+    assert Vaultex.Client.auth(:app_role, {"vaultex_test_role_id"}, client)
+      == {:ok, :authenticated}
   end
 
-  test "Authentication of app_id and user_id requiring redirects is successful" do
-    assert Vaultex.Client.auth(:app_id, {"redirects_good", "whatever"}) == {:ok, :authenticated}
+  test "Authentication of app_role with role_id and secret_id is successful", %{client: client} do
+    assert Vaultex.Client.auth(:app_role,
+        {"vaultex_secret_id_test_role_id",
+         "vaultex_secret_id_test_role_id_secret_id"}, client)
+      == {:ok, :authenticated}
   end
 
-  test "Authentication of app_id and user_id causes an exception" do
-    assert Vaultex.Client.auth(:app_id, {"boom", "whatever"}) == {:error, ["Bad response from vault [http://localhost:8200/v1/]", "econnrefused"]}
+  test "Authentication of app_role with role_id but without secret_id is unsuccessful", %{client: client} do
+    assert Vaultex.Client.auth(:app_role,
+        {"vaultex_secret_id_test_role_id"}, client)
+      == {:error, ["failed to validate SecretID: missing secret_id"]}
   end
 
-  test "Authentication of userpass is successful" do
-    assert Vaultex.Client.auth(:userpass, {"user", "good"}) == {:ok, :authenticated}
+  test "Authentication of userpass is successful", %{client: client} do
+    assert Vaultex.Client.auth(:userpass, {"vaultex", "vaultex_password"}, client)
+      == {:ok, :authenticated}
   end
 
-  test "Authentication of userpass requiring redirects is successful" do
-    assert Vaultex.Client.auth(:userpass, {"user", "redirects_good"}) == {:ok, :authenticated}
+  test "Authentication of userpass is unsuccessful", %{client: client} do
+    assert Vaultex.Client.auth(:userpass, {"vaultex", "bad"}, client)
+      == {:error, ["invalid username or password"]}
   end
 
-  test "Authentication of userpass is unsuccessful" do
-    assert Vaultex.Client.auth(:userpass, {"user", "bad"}) == {:error, ["Not Authenticated"]}
+  test "Read of key with app_role is successful", %{client: client} do
+    assert Vaultex.Client.read("secret/allow/key", :app_role, {"vaultex_test_role_id"}, client)
+      == {:ok, %{"name" => "data", "value" => "123"}}
   end
 
-  test "Authentication of userpass causes an exception" do
-    assert Vaultex.Client.auth(:userpass, {"user", "boom"}) == {:error, ["Bad response from vault [http://localhost:8200/v1/]", "econnrefused"]}
+  test "Read of key without permission with role_id, secret_id returns error", %{client: client} do
+    assert Vaultex.Client.read("secret/deny/key", :app_role,
+        {"vaultex_secret_id_test_role_id",
+         "vaultex_secret_id_test_role_id_secret_id"}, client)
+      == {:error, ["permission denied"]}
   end
 
-  test "Authentication of github_token is successful" do
-    assert Vaultex.Client.auth(:github, {"good"}) == {:ok, :authenticated}
+  test "Read of key with invalid secret_id returns error", %{client: client} do
+    assert Vaultex.Client.read("secret/allow/key", :app_role,
+        {"vaultex_secret_id_test_role_id",
+         "invalid_secret"}, client)
+      == {:error, ["failed to validate SecretID: invalid secret_id \"invalid_secret\""]}
   end
 
-  test "Authentication of github_token is unsuccessful" do
-    assert Vaultex.Client.auth(:github, {"bad"}) == {:error, ["Not Authenticated"]}
+  test "Read of key with userpass is successful", %{client: client} do
+    assert Vaultex.Client.read("secret/allow/key", :userpass, {"vaultex", "vaultex_password"}, client)
+      == {:ok, %{"name" => "data", "value" => "123"}}
   end
 
-  test "Authentication of github_token requiring redirects is successful" do
-    assert Vaultex.Client.auth(:github, {"redirects_good"}) == {:ok, :authenticated}
+  test "Read of key without permission with userpass returns error", %{client: client} do
+    assert Vaultex.Client.read("secret/deny/key", :userpass, {"vaultex", "vaultex_password"}, client)
+      == {:error, ["permission denied"]}
   end
 
-  test "Authentication of github_token causes an exception" do
-    assert Vaultex.Client.auth(:github, {"boom"}) == {:error, ["Bad response from vault [http://localhost:8200/v1/]", "econnrefused"]}
+  test "Read of key with invalid userpass returns error", %{client: client} do
+    assert Vaultex.Client.read("secret/allow/key", :userpass, {"vaultex", "invalid_password"}, client)
+      == {:error, ["invalid username or password"]}
   end
-
-  test "Read of valid secret key returns the correct value" do
-    assert Vaultex.Client.read("secret/foo", :app_id, {"good", "whatever"}) == {:ok, %{"value" => "bar"}}
-  end
-
-  test "Read of valid secret key requiring redirect returns the correct value" do
-    assert Vaultex.Client.read("secret/foo/redirects", :app_id, {"good", "whatever"}) == {:ok, %{"value" => "bar"}}
-  end
-
-  test "Read of non existing secret key returns error" do
-    assert Vaultex.Client.read("secret/baz", :app_id, {"good", "whatever"}) == {:error, ["Key not found"]}
-  end
-
-  test "Read of a secret key given bad authentication returns error" do
-    assert Vaultex.Client.read("secret/faz", :app_id, {"bad", "whatever"}) == {:error, ["Not Authenticated"]}
-  end
-
-  test "Read of a secret key causes and exception" do
-    assert Vaultex.Client.read("secret/boom", :app_id, {"good", "whatever"}) == {:error, ["Bad response from vault [http://localhost:8200/v1/]", "econnrefused"]}
-  end
-
 end
